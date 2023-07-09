@@ -164,6 +164,7 @@ SRCS += \
   $(TOP)/watch-library/hardware/hpl/systick/hpl_systick.c \
   $(TOP)/watch-library/shared/driver/thermistor_driver.c \
   $(TOP)/watch-library/shared/driver/lis2dw.c \
+  $(TOP)/watch-library/shared/driver/tcs3400.c \
   $(TOP)/watch-library/shared/driver/opt3001.c \
   $(TOP)/watch-library/shared/driver/spiflash.c \
   $(TOP)/watch-library/shared/watch/watch_private_display.c \
