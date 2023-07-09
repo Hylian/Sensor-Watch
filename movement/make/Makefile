@@ -141,6 +141,9 @@ SRCS += \
   ../watch_faces/complication/simple_calculator_face.c \
   ../watch_faces/sensor/alarm_thermometer_face.c \
   ../watch_faces/demo/beeps_face.c \
+  ../watch_faces/sensor/tcs3400_face.c \
+  ../watch_faces/complication/film_reminder_face.c \
+  ../watch_faces/settings/lm_tune_face.c
 # New watch faces go above this line.
 
 # Leave this line at the bottom of the file; it has all the targets for making your project.

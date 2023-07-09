@@ -30,6 +30,7 @@
 
 #include "filesystem.h"
 #include "watch.h"
+#include "tcs3400.h"
 
 static int help_cmd(int argc, char *argv[]);
 static int flash_cmd(int argc, char *argv[]);
@@ -105,6 +106,13 @@ shell_command_t g_shell_commands[] = {
         .min_args = 0,
         .max_args = 2,
         .cb = stress_cmd,
+    },
+    {
+        .name = "tcs",
+        .help = "",
+        .min_args = 0,
+        .max_args = 0,
+        .cb = tcs3400_test_cmd,
     },
 };
 

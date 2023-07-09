@@ -96,6 +96,7 @@ void watch_register_interrupt_callback(const uint8_t pin, ext_irq_cb_t callback,
     // ...set the pin mode...
     gpio_set_pin_function(pin, GPIO_PIN_FUNCTION_A);
     if (pin == BTN_ALARM || pin == BTN_LIGHT || pin == BTN_MODE) gpio_set_pin_pull_mode(pin, GPIO_PULL_DOWN);
+    if (pin == A4) gpio_set_pin_pull_mode(pin, GPIO_PULL_UP);
     // ...and re-enable the EIC
     hri_eic_set_CTRLA_ENABLE_bit(EIC);
 
