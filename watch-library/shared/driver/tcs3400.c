@@ -160,16 +160,17 @@ static void s_decrease_gain() {
     tcs3400_write_again(s_again);
 }
 
-const tcs3400_atime_e kAtime = TCS3400_ATIME_103MS;
+const tcs3400_atime_e kAtime = TCS3400_ATIME_27_8MS;
 
 void tcs3400_ev_setup() {
     //tcs3400_start();
     tcs3400_atime_e atime = kAtime;
     tcs3400_write_again(s_again);
     tcs3400_write_atime(atime);
-    tcs3400_write_apers(TCS3400_APERS_EVERY);
+    //tcs3400_write_apers(TCS3400_APERS_EVERY);
 }
 
+// Device Factor (calibration constant specific to this part)
 static uint16_t s_df = 100;
 uint16_t tcs3400_ev_get_df() {
     return s_df;
@@ -178,8 +179,70 @@ void tcs3400_ev_set_df(uint16_t df) {
     s_df = df;
 }
 
-bool tcs3400_ev_measure(float *ev, size_t iso) {
-    if (!ev) {
+// Fixed point log2 implementation
+// Based off of https://github.com/dmoulding/log2fix by Dan Moulding
+#define FRACTIONAL_BITS (14)
+// 2.6711635357704604 => b101011 => 0x2b
+#define EV_OFFSET_FIXED ((uint32_t)(2.6711635357704604 * (1 << FRACTIONAL_BITS)))
+
+static int32_t s_log2_fixed(uint32_t x) {
+    x <<= FRACTIONAL_BITS;
+    int32_t b = 1U << (FRACTIONAL_BITS - 1);
+    int32_t result = 0;
+
+    if (x == 0) {
+        return INT32_MIN;
+    }
+
+    while (x < 1U << FRACTIONAL_BITS) {
+        x <<= 1;
+        result -= 1U << FRACTIONAL_BITS;
+    }
+
+    while (x >= 2U << FRACTIONAL_BITS) {
+        x >>= 1;
+        result += 1U << FRACTIONAL_BITS;
+    }
+
+    uint64_t z = x;
+
+    for (size_t i = 0; i < FRACTIONAL_BITS; i++) {
+        z = z * z >> FRACTIONAL_BITS;
+        if (z >= 2U << FRACTIONAL_BITS) {
+            z >>= 1;
+            result += b;
+        }
+        b >>= 1;
+    }
+
+    return result;
+}
+
+#define TCS3400_FRAC_MASK(x) (x & ((1U << FRACTIONAL_BITS) - 1))
+
+uint32_t tcs3400_fixed_get_whole(uint32_t x) {
+    return x >> FRACTIONAL_BITS;
+}
+
+uint32_t tcs3400_fixed_round_to_int(uint32_t x) {
+    return (x >> FRACTIONAL_BITS) + ((x & (1U << (FRACTIONAL_BITS) - 1)) >= (1U << (FRACTIONAL_BITS - 1)));
+}
+
+uint32_t tcs3400_fixed_get_frac_digit(uint32_t x) {
+  uint64_t frac = ((uint64_t) TCS3400_FRAC_MASK(x)) << (32 - FRACTIONAL_BITS);
+  frac *= 10;
+  uint8_t digit_1 = (frac >> 32) % 10;
+  frac *= 10;
+  uint8_t digit_2 = (frac >> 32) % 10;
+  printf(".%u%u\n", digit_1, digit_2);
+  if (digit_2 >= 5) {
+    digit_1++;
+  }
+  return digit_1;
+}
+
+bool tcs3400_ev_measure(uint32_t *ev_fixed, size_t iso) {
+    if (!ev_fixed) {
         return false;
     }
 
@@ -207,28 +270,37 @@ bool tcs3400_ev_measure(float *ev, size_t iso) {
 
     const uint32_t atime_us = tcs3400_atime_to_us(kAtime);
     const uint8_t again_x = tcs3400_again_to_gain(s_again);
+
+    // Glass Attenuation Factor
     const uint8_t ga = 1;
-    const uint16_t df = 100;
-    const uint32_t cpl = (atime_us * again_x) / (ga * df);
+    const uint32_t cpl = (atime_us * again_x) / (ga * s_df);
 
     const int32_t r_coef = -20;
     const int32_t g_coef = 1000;
     const int32_t b_coef = -482;
 
-    int32_t ir = red/2 + green/2 + blue/2 - clear/2;
+    //int32_t ir = red/2 - clear/2 + green/2 + blue/2;
+    int64_t ir = red/2;
+    ir += green/2;
+    ir += blue/2;
+    ir -= clear/2;
 
     int32_t red_p = red - ir;
     int32_t green_p = green - ir;
     int32_t blue_p = blue - ir;
 
-    int32_t red_c = red_p * r_coef;
-    int32_t green_c = green_p * g_coef;
-    int32_t blue_c = blue_p * b_coef;
+    int64_t red_c = red_p * r_coef;
+    int64_t green_c = green_p * g_coef;
+    int64_t blue_c = blue_p * b_coef;
 
-    int32_t lux = ((red_c + green_c + blue_c) / cpl);
+    int64_t lux = ((red_c + green_c + blue_c) / cpl);
+    if (lux < 0) {
+      lux = 0;
+    }
     //*ev = (log(((float) lux) * 100.0 / 12.5)) / (log(2.0)) + 2.6711635357704604;
 
-    *ev = (log(((float) lux) * ((float) iso) / 250.0)) / log(2.0) + 2.6711635357704604;
+    //*ev = (log(((float) lux) * ((float) iso) / 250.0)) / log(2.0) + 2.6711635357704604;
+    *ev_fixed = s_log2_fixed((uint32_t)(lux * iso / 250)) + EV_OFFSET_FIXED;
 
     return true;
 }
