@@ -32,9 +32,10 @@ const watch_face_t watch_faces[] = {
     tcs3400_face,
     film_reminder_face,
     stopwatch_face,
-    lm_tune_face,
-    preferences_face,
+    voltage_face,
     set_time_face,
+    preferences_face,
+    lm_tune_face,
 };
 
 #define MOVEMENT_NUM_FACES (sizeof(watch_faces) / sizeof(watch_face_t))
@@ -44,19 +45,8 @@ const watch_face_t watch_faces[] = {
  * In the default firmware, this lets you access temperature and battery voltage with a long press of Mode.
  * Some folks also like to use this to hide the preferences and time set faces from the normal rotation.
  * If you don't want any faces to be excluded, set this to 0 and a long Mode press will have no effect.
-||||||| parent of 7143ac7 (film reminder initial commit)
-/* Determines what face to go to from the first face if you've already set
- * a mode long press to go to the first face in preferences, and
- * excludes these faces from the normal rotation.
  * Usually it makes sense to set this to the preferences face.
-=======
-/* Determines what face to go to from the first face if you've already set
- * a mode long press to go to the first face in preferences, and
- * excludes these faces from the normal rotation.
- * Usually it makes sense to set this to the preferences face.
->>>>>>> 7143ac7 (film reminder initial commit)
  */
-//#define MOVEMENT_SECONDARY_FACE_INDEX (MOVEMENT_NUM_FACES - 2) // or (0)
 #define MOVEMENT_SECONDARY_FACE_INDEX (4) // or (0)
 
 /* Custom hourly chime tune. Check movement_custom_signal_tunes.h for options. */
@@ -72,7 +62,7 @@ const watch_face_t watch_faces[] = {
 #define MOVEMENT_DEFAULT_24H_MODE false
 
 /* Enable or disable the sound on mode button press */
-#define MOVEMENT_DEFAULT_BUTTON_SOUND true
+#define MOVEMENT_DEFAULT_BUTTON_SOUND false
 
 /* Set the timeout before switching back to the main watch face
  * Valid values are:
@@ -81,7 +71,7 @@ const watch_face_t watch_faces[] = {
  * 2: 5 minutes
  * 3: 30 minutes
  */
-#define MOVEMENT_DEFAULT_TIMEOUT_INTERVAL 0
+#define MOVEMENT_DEFAULT_TIMEOUT_INTERVAL 3
 
 /* Set the timeout before switching to low energy mode
  * Valid values are:
