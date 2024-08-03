@@ -201,6 +201,12 @@ uint8_t tcs3400_get_gain();
 uint16_t tcs3400_ev_get_df();
 void tcs3400_ev_set_df(uint16_t df);
 void tcs3400_ev_setup();
-bool tcs3400_ev_measure(float *ev, size_t iso);
+
+uint32_t tcs3400_fixed_get_whole(uint32_t x);
+uint32_t tcs3400_fixed_round_to_int(uint32_t x);
+uint32_t tcs3400_fixed_get_frac_digit(uint32_t x);
+
+//bool tcs3400_ev_measure(float *ev, size_t iso);
+bool tcs3400_ev_measure(uint32_t *ev_fixed, size_t iso);
 
 int tcs3400_test_cmd(int argc, char *argv[]);
