@@ -5,6 +5,7 @@
 #include <math.h>
 
 #include "tcs3400.h"
+#include "hal_ext_irq.h"
 #include "watch_utility.h"
 
 #define NUM_FSTOPS (8)
@@ -49,9 +50,9 @@ static struct {
   size_t fstop_idx;
   size_t iso_idx;
   uint32_t last_ev;
-  bool request_reading;
-  bool trigger_reading;
-  bool result_available;
+  bool request_reading; // Alarm button is held
+  bool trigger_reading; // Sensor is running
+  bool retry; // Follow-up reading needed for autogain
 } s_state = {0};
 
 // Returns:
@@ -59,28 +60,13 @@ static struct {
 //   Light too low: -1
 //   Light too high: -2
 static int prv_pick_shutter_speed(int ev, size_t fstop_idx) {
-    static bool s_indicator_set = false;
     // At EV 1, f/1.4 == 1 sec
     int result = ev - fstop_idx;
     if (result < 0) {
         return -1;
-        if (!s_indicator_set) {
-            watch_set_indicator(WATCH_INDICATOR_LAP);
-            s_indicator_set = true;
-        }
-        return 0;
     }
     if (result >= NUM_SHUTTER_SPEEDS) {
         return -2;
-        if (!s_indicator_set) {
-            watch_set_indicator(WATCH_INDICATOR_LAP);
-            s_indicator_set = true;
-        }
-        return NUM_SHUTTER_SPEEDS - 1;
-    }
-    if (s_indicator_set) {
-        watch_clear_indicator(WATCH_INDICATOR_LAP);
-        s_indicator_set = false;
     }
     return result;
 }
@@ -90,16 +76,40 @@ static void prv_update_shutter_speed() {
     int shutter_speed_idx = prv_pick_shutter_speed(s_state.last_ev, s_state.fstop_idx);
     if (shutter_speed_idx == -1) {
         memcpy(buf, "  LO", 5);
+        watch_set_indicator(WATCH_INDICATOR_LAP);
     } else if (shutter_speed_idx == -2) {
         memcpy(buf, "  HI", 5);
+        watch_set_indicator(WATCH_INDICATOR_LAP);
     } else {
         sprintf(buf, "%4u", s_shutter_speeds[shutter_speed_idx]);
+        watch_clear_indicator(WATCH_INDICATOR_LAP);
     }
     watch_display_string(buf, 6);
 }
 
 static void prv_interrupt_handler() {
-    s_state.result_available = true;
+    uint32_t ev_fixed;
+    bool result = tcs3400_ev_measure(&ev_fixed, s_isos[s_state.iso_idx]);
+
+    if (result) {
+        if (s_state.retry) {
+            tcs3400_write_wtime(TCS3400_WTIME_103MS);
+            s_state.retry = false;
+        }
+        s_state.last_ev = tcs3400_fixed_round_to_int(ev_fixed);
+        prv_update_shutter_speed();
+    } else if (!s_state.retry) {
+        tcs3400_write_wtime(TCS3400_WTIME_27_8MS);
+        s_state.retry = true;
+    }
+
+    s_state.trigger_reading = (s_state.retry || s_state.request_reading);
+
+    if (!s_state.trigger_reading) {
+        tcs3400_disable();
+    }
+
+    tcs3400_clear_all_interrupts();
 }
 
 void tcs3400_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr) {
@@ -115,45 +125,31 @@ void tcs3400_face_activate(movement_settings_t *settings, void *context) {
     (void) context;
     watch_enable_i2c();
     tcs3400_ev_setup();
+    tcs3400_write_wtime(TCS3400_WTIME_103MS);
+    tcs3400_clear_all_interrupts();
 }
 
 bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, void *context) {
     (void) settings;
     (void) context;
 
+    ext_irq_disable(A4);
+
     char buf[11] = {0};
     switch (event.event_type) {
         case EVENT_ACTIVATE:
             s_state.last_ev = 0;
+            s_state.trigger_reading = false;
+            s_state.request_reading = false;
+            s_state.retry = false;
+
             sprintf(buf, "  %2u%s", s_isos[s_state.iso_idx]/100, s_fstop_strs[s_state.fstop_idx]);
             watch_display_string(buf, 0);
+
+            // Perform a single reading on activation
+            tcs3400_start();
             break;
         case EVENT_TICK:
-            bool retry = false;
-            if (s_state.result_available && (s_state.trigger_reading || s_state.request_reading)) {
-                uint32_t ev_fixed;
-                bool result = tcs3400_ev_measure(&ev_fixed, s_isos[s_state.iso_idx]);
-                retry = !result;
-
-                if (result) {
-                    s_state.result_available = false;
-                    s_state.last_ev = tcs3400_fixed_round_to_int(ev_fixed);
-                    prv_update_shutter_speed();
-                }
-            }
-
-            s_state.trigger_reading = (retry || s_state.request_reading);
-
-            if (s_state.trigger_reading) {
-                if (retry) {
-                    movement_request_tick_frequency(20);
-                } else {
-                    movement_request_tick_frequency(4);
-                }
-            } else {
-                tcs3400_disable();
-                movement_request_tick_frequency(1);
-            }
             break;
         case EVENT_LIGHT_LONG_PRESS:
             s_state.iso_idx = (s_state.iso_idx + 1) % NUM_ISOS;
@@ -173,7 +169,6 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
 
             if (!s_state.trigger_reading) {
                 tcs3400_start();
-                movement_request_tick_frequency(20);
             }
             break;
         case EVENT_ALARM_BUTTON_UP:
@@ -188,12 +183,15 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
             break;
     }
 
+    ext_irq_enable(A4);
+
     return true;
 }
 
 void tcs3400_face_resign(movement_settings_t *settings, void *context) {
     (void) settings;
     (void) context;
+    ext_irq_disable(A4);
     s_state.request_reading = false;
     s_state.trigger_reading = false;
     tcs3400_stop();
