@@ -1,7 +1,8 @@
 #pragma once
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 typedef enum {
     TCS3400_REG_ENABLE = 0x80,
@@ -181,6 +182,11 @@ uint16_t tcs3400_read_blue_data(void);
 uint16_t tcs3400_read_green_data(void);
 tcs3400_reg_enable_t tcs3400_read_enable(void);
 tcs3400_reg_status_t tcs3400_read_status(void);
+void tcs3400_read_data(tcs3400_reg_status_t *status,
+                       uint16_t *clear,
+                       uint16_t *red,
+                       uint16_t *green,
+                       uint16_t *blue);
 
 void tcs3400_write_enable(tcs3400_reg_enable_t enable);
 void tcs3400_write_again(tcs3400_again_e gain);
@@ -188,6 +194,8 @@ void tcs3400_write_atime(tcs3400_atime_e atime);
 void tcs3400_write_wtime(tcs3400_wtime_e wtime);
 void tcs3400_write_apers(tcs3400_apers_e apers);
 void tcs3400_write_aux(tcs3400_reg_aux_t aux);
+
+void tcs3400_clear_all_interrupts();
 
 void tcs3400_start(void);
 void tcs3400_disable(void);

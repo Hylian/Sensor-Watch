@@ -1,9 +1,11 @@
+#include "tcs3400.h"
+
 #include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 
-#include "tcs3400.h"
 #include "watch_utility.h"
 
 #define TCS3400_ADDR  (0x39)
@@ -27,23 +29,19 @@ tcs3400_reg_id_t tcs3400_read_id(void) {
 }
 
 uint16_t tcs3400_read_clear_ir_data(void) {
-    return (prv_read_register(TCS3400_REG_CDATAH) << 8) |
-            prv_read_register(TCS3400_REG_CDATAL);
+    return watch_i2c_read16(TCS3400_ADDR, TCS3400_REG_CDATAL);
 }
 
 uint16_t tcs3400_read_red_data(void) {
-    return (prv_read_register(TCS3400_REG_RDATAH) << 8) |
-            prv_read_register(TCS3400_REG_RDATAL);
+    return watch_i2c_read16(TCS3400_ADDR, TCS3400_REG_RDATAL);
 }
 
 uint16_t tcs3400_read_blue_data(void) {
-    return (prv_read_register(TCS3400_REG_BDATAH) << 8) |
-            prv_read_register(TCS3400_REG_BDATAL);
+    return watch_i2c_read16(TCS3400_ADDR, TCS3400_REG_BDATAL);
 }
 
 uint16_t tcs3400_read_green_data(void) {
-    return (prv_read_register(TCS3400_REG_GDATAH) << 8) |
-            prv_read_register(TCS3400_REG_GDATAL);
+    return watch_i2c_read16(TCS3400_ADDR, TCS3400_REG_GDATAL);
 }
 
 tcs3400_reg_enable_t tcs3400_read_enable(void) {
@@ -58,6 +56,27 @@ tcs3400_reg_status_t tcs3400_read_status(void) {
     tcs3400_reg_status_t status = {0};
     status.raw = prv_read_register(TCS3400_REG_STATUS);
     return status;
+}
+
+void tcs3400_read_data(tcs3400_reg_status_t *status,
+                       uint16_t *clear,
+                       uint16_t *red,
+                       uint16_t *green,
+                       uint16_t *blue) {
+    if (!status || !clear || !red || !green || !blue) {
+        return;
+    }
+
+    uint8_t reg = TCS3400_REG_STATUS;
+    uint8_t data[9] = {0};
+    watch_i2c_send(TCS3400_ADDR, &reg, 1);
+    watch_i2c_receive(TCS3400_ADDR, data, 9);
+
+    *status = (tcs3400_reg_status_t)data[0];
+    *clear = (uint16_t)(data[1] + (data[2] << 8));
+    *red = (uint16_t)(data[3] + (data[4] << 8));
+    *green = (uint16_t)(data[3] + (data[4] << 8));
+    *blue = (uint16_t)(data[5] + (data[6] << 8));
 }
 
 void tcs3400_write_again(tcs3400_again_e gain) {
@@ -76,6 +95,16 @@ void tcs3400_write_apers(tcs3400_apers_e apers) {
     tcs3400_reg_pers_t pers_reg = {0};
     pers_reg.field.apers = apers;
     prv_write_register(TCS3400_REG_PERS, pers_reg.raw);
+}
+
+void tcs3400_write_wtime(tcs3400_wtime_e wtime) {
+    tcs3400_reg_wtime_t wtime_reg = {0};
+    wtime_reg.field.wtime = wtime;
+    prv_write_register(TCS3400_REG_WTIME, wtime_reg.raw);
+}
+
+void tcs3400_clear_all_interrupts() {
+    prv_write_register(TCS3400_REG_AICLEAR, 0);
 }
 
 void tcs3400_start(void) {
@@ -134,9 +163,11 @@ uint8_t tcs3400_again_to_gain(tcs3400_again_e again) {
 
 uint32_t tcs3400_get_saturation_count(tcs3400_atime_e atime) {
     uint32_t atime_ms = tcs3400_atime_to_us(atime)/1000;
-    if (atime_ms > 154) { // if atime_ms > 154ms (digital saturation)
+    if (atime_ms > 154) {
+        // Digital saturation applies if atime_ms > 154ms
         return 65535;
-    } else { // analog saturation
+    } else {
+        // Otherwise, analog saturation will occur first.
         return 1024 * (atime_ms/3);
     }
 }
@@ -163,11 +194,10 @@ static void s_decrease_gain() {
 const tcs3400_atime_e kAtime = TCS3400_ATIME_27_8MS;
 
 void tcs3400_ev_setup() {
-    //tcs3400_start();
     tcs3400_atime_e atime = kAtime;
     tcs3400_write_again(s_again);
     tcs3400_write_atime(atime);
-    //tcs3400_write_apers(TCS3400_APERS_EVERY);
+    tcs3400_write_apers(TCS3400_APERS_EVERY);
 }
 
 // Device Factor (calibration constant specific to this part)
@@ -185,13 +215,13 @@ void tcs3400_ev_set_df(uint16_t df) {
 // 2.6711635357704604 => b101011 => 0x2b
 #define EV_OFFSET_FIXED ((uint32_t)(2.6711635357704604 * (1 << FRACTIONAL_BITS)))
 
-static int32_t s_log2_fixed(uint32_t x) {
+static uint32_t s_log2_fixed(uint32_t x) {
     x <<= FRACTIONAL_BITS;
     int32_t b = 1U << (FRACTIONAL_BITS - 1);
     int32_t result = 0;
 
     if (x == 0) {
-        return INT32_MIN;
+        return 0;
     }
 
     while (x < 1U << FRACTIONAL_BITS) {
@@ -225,20 +255,20 @@ uint32_t tcs3400_fixed_get_whole(uint32_t x) {
 }
 
 uint32_t tcs3400_fixed_round_to_int(uint32_t x) {
-    return (x >> FRACTIONAL_BITS) + ((x & (1U << (FRACTIONAL_BITS) - 1)) >= (1U << (FRACTIONAL_BITS - 1)));
+    return (x >> FRACTIONAL_BITS) +
+           ((x & ((1U << FRACTIONAL_BITS) - 1)) >= (1U << (FRACTIONAL_BITS - 1)));
 }
 
 uint32_t tcs3400_fixed_get_frac_digit(uint32_t x) {
-  uint64_t frac = ((uint64_t) TCS3400_FRAC_MASK(x)) << (32 - FRACTIONAL_BITS);
-  frac *= 10;
-  uint8_t digit_1 = (frac >> 32) % 10;
-  frac *= 10;
-  uint8_t digit_2 = (frac >> 32) % 10;
-  printf(".%u%u\n", digit_1, digit_2);
-  if (digit_2 >= 5) {
-    digit_1++;
-  }
-  return digit_1;
+    uint64_t frac = ((uint64_t) TCS3400_FRAC_MASK(x)) << (32 - FRACTIONAL_BITS);
+    frac *= 10;
+    uint8_t digit_1 = (frac >> 32) % 10;
+    frac *= 10;
+    uint8_t digit_2 = (frac >> 32) % 10;
+    if (digit_2 >= 5) {
+        digit_1++;
+    }
+    return digit_1;
 }
 
 bool tcs3400_ev_measure(uint32_t *ev_fixed, size_t iso) {
@@ -246,15 +276,13 @@ bool tcs3400_ev_measure(uint32_t *ev_fixed, size_t iso) {
         return false;
     }
 
-    tcs3400_reg_status_t status = tcs3400_read_status();
+    tcs3400_reg_status_t status;
+    uint16_t clear, red, green, blue;
+    tcs3400_read_data(&status, &clear, &red, &green, &blue);
+
     if (!status.field.avalid) {
         return false;
     }
-
-    int32_t clear = tcs3400_read_clear_ir_data();
-    int32_t red = tcs3400_read_red_data();
-    int32_t green = tcs3400_read_green_data();
-    int32_t blue = tcs3400_read_blue_data();
 
     // Is saturated?
     if (clear > tcs3400_get_saturation_count(kAtime)) {
@@ -268,111 +296,92 @@ bool tcs3400_ev_measure(uint32_t *ev_fixed, size_t iso) {
         return false;
     }
 
-    const uint32_t atime_us = tcs3400_atime_to_us(kAtime);
-    const uint8_t again_x = tcs3400_again_to_gain(s_again);
-
-    // Glass Attenuation Factor
-    const uint8_t ga = 1;
-    const uint32_t cpl = (atime_us * again_x) / (ga * s_df);
-
-    const int32_t r_coef = -20;
-    const int32_t g_coef = 1000;
-    const int32_t b_coef = -482;
-
-    //int32_t ir = red/2 - clear/2 + green/2 + blue/2;
-    int64_t ir = red/2;
+    // Estimate IR component of reading
+    int32_t ir = red/2;
     ir += green/2;
     ir += blue/2;
     ir -= clear/2;
 
+    // Subtract IR component from each channel
     int32_t red_p = red - ir;
     int32_t green_p = green - ir;
     int32_t blue_p = blue - ir;
 
+    // Apply device-specific correction factor to each channel
+    const int32_t r_coef = -20;
+    const int32_t g_coef = 1000;
+    const int32_t b_coef = -482;
     int64_t red_c = red_p * r_coef;
     int64_t green_c = green_p * g_coef;
     int64_t blue_c = blue_p * b_coef;
+
+    // Calculate Counts-per-Lux
+    const uint32_t atime_us = tcs3400_atime_to_us(kAtime);
+    const uint8_t again_x = tcs3400_again_to_gain(s_again);
+    const uint8_t ga = 1; // Glass Attenuation Factor
+    const uint32_t cpl = (atime_us * again_x) / (ga * s_df);
 
     int64_t lux = ((red_c + green_c + blue_c) / cpl);
     if (lux < 0) {
       lux = 0;
     }
-    //*ev = (log(((float) lux) * 100.0 / 12.5)) / (log(2.0)) + 2.6711635357704604;
 
-    //*ev = (log(((float) lux) * ((float) iso) / 250.0)) / log(2.0) + 2.6711635357704604;
+    uint32_t scaled_lux = (lux * iso / 250);
+    if (scaled_lux < 2) {
+      *ev_fixed = 0;
+      return true;
+    }
+
     *ev_fixed = s_log2_fixed((uint32_t)(lux * iso / 250)) + EV_OFFSET_FIXED;
 
     return true;
 }
 
+static bool s_test_got_interrupt = false;
+static void prv_test_interrupt_handler() {
+  s_test_got_interrupt = true;
+  tcs3400_clear_all_interrupts();
+}
+
 int tcs3400_test_cmd(int argc, char *argv[]) {
-    static bool initialized = false;
-    if (!initialized) {
+    (void) argc;
+    (void) argv;
+
+    static bool s_initialized = false;
+    if (!s_initialized) {
+        watch_enable_pull_up(A4);
+        watch_register_interrupt_callback(A4, prv_test_interrupt_handler, INTERRUPT_TRIGGER_FALLING);
+        watch_enable_i2c();
+        tcs3400_write_wtime(TCS3400_WTIME_103MS);
+        tcs3400_atime_e atime = kAtime;
+        tcs3400_write_again(s_again);
+        tcs3400_write_atime(atime);
+        tcs3400_write_apers(TCS3400_APERS_EVERY);
         tcs3400_start();
-        initialized = true;
+        tcs3400_clear_all_interrupts();
+        s_initialized = true;
     }
 
-    //tcs3400_atime_e atime = TCS3400_ATIME_27_8MS;
-    //tcs3400_again_e again = TCS3400_AGAIN_64X;
-    tcs3400_atime_e atime = TCS3400_ATIME_178MS;
-    tcs3400_again_e again = TCS3400_AGAIN_4X;
-    tcs3400_write_again(again);
-    tcs3400_write_atime(atime);
-    tcs3400_reg_id_t id = tcs3400_read_id();
-    uint16_t clear = tcs3400_read_clear_ir_data();
-    uint16_t red = tcs3400_read_red_data();
-    uint16_t green = tcs3400_read_green_data();
-    uint16_t blue = tcs3400_read_blue_data();
-    tcs3400_reg_enable_t enable = tcs3400_read_enable();
-    tcs3400_reg_status_t status = tcs3400_read_status();
-    printf("aen(%i) pon(%i) valid(%i) id(%02x) clear(%i) red(%i) green(%i) blue(%i)\r\n", enable.field.aen, enable.field.pon, status.field.avalid, id.raw, clear, red, green, blue);
 
+    tcs3400_reg_status_t status;
+    uint16_t clear, red, green, blue;
+    tcs3400_read_data(&status, &clear, &red, &green, &blue);
 
-    const uint32_t atime_us = tcs3400_atime_to_us(atime);
-    const uint8_t again_x = tcs3400_again_to_gain(again);
-    const uint8_t ga = 1;
-    //const uint16_t df =  127 * 45 / 10 * 186 / 100; // todo
-    const uint16_t df = 100;
-    const uint32_t cpl = (atime_us * again_x) / (ga * df);
+    uint32_t ev_fixed = 0;
+    size_t iso = 100;
+    bool result = tcs3400_ev_measure(&ev_fixed, iso);
 
-    //const int32_t r_coef = -97;
-    const int32_t r_coef = -20;
-    const int32_t g_coef = 1000;
-    const int32_t b_coef = -482;
-
-    int32_t ir = (((int32_t) red) + green + blue - clear) / 2;
-
-    int32_t red_p = red - ir;
-    int32_t green_p = green - ir;
-    int32_t blue_p = blue - ir;
-
-    int32_t red_c = red_p * r_coef;
-    int32_t green_c = green_p * g_coef;
-    int32_t blue_c = blue_p * b_coef;
-
-    const int32_t offset = 0;
-
-    uint32_t saturation_point;
-    if ((256 - atime) > 63) { // if atime_ms > 154ms (digital saturation)
-        saturation_point = 65535;
-    } else { // analog saturation
-        saturation_point = 1024 * (256 - atime);
-        saturation_point = saturation_point - saturation_point/4;
+    printf("valid(%i) clear(%i) red(%i) green(%i) blue(%i)\r\n",
+           status.field.avalid, clear, red, green, blue);
+    if (result) {
+        printf("ev_raw(%08x) ev_round(%u) ev_whole(%u) ev_frac(%u)\r\n",
+               ev_fixed,
+               tcs3400_fixed_round_to_int(ev_fixed),
+               tcs3400_fixed_get_whole(ev_fixed),
+               tcs3400_fixed_get_frac_digit(ev_fixed));
     }
-
-    if (clear >= saturation_point) {
-        printf("saturation! %u > %u\r\n", clear, saturation_point);
-    }
-
-    int32_t lux = ((red_c + green_c + blue_c) / cpl) + offset;
-    printf("lux(%i) cpl(%u) ir(%i) rc(%i) gc(%i) bc(%i)\r\n", lux, cpl, ir, red_c, green_c, blue_c);
-
-    //float ev = log(((float) lux) / 2.5) / log(2.0);
-    float ev = (log((float) lux) / log(2.0))+3.0;
-
-    float ev2 = (log(((float) lux) * 100.0 / 12.5)) / (log(2.0)) + 2.6711635357704604;
-
-    printf("EV(%f) EV2(%f) \r\n", ev, ev2);
+    printf("interrupt(%u)\r\n", s_test_got_interrupt);
+    s_test_got_interrupt = false;
 
     return 0;
 }
