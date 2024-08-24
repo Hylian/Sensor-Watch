@@ -50,7 +50,7 @@ static struct {
   size_t fstop_idx;
   size_t iso_idx;
   uint32_t last_ev;
-  bool request_reading; // Alarm button is held
+  bool alarm_pressed; // Alarm button is held
   bool trigger_reading; // Sensor is running
   bool retry; // Follow-up reading needed for autogain
 } s_state = {0};
@@ -103,7 +103,7 @@ static void prv_interrupt_handler() {
         s_state.retry = true;
     }
 
-    s_state.trigger_reading = (s_state.retry || s_state.request_reading);
+    s_state.trigger_reading = (s_state.retry || s_state.alarm_pressed);
 
     if (!s_state.trigger_reading) {
         tcs3400_disable();
@@ -117,13 +117,13 @@ void tcs3400_face_setup(movement_settings_t *settings, uint8_t watch_face_index,
     (void) watch_face_index;
     (void) context_ptr;
     watch_enable_pull_up(A4);
-    watch_register_interrupt_callback(A4, prv_interrupt_handler, INTERRUPT_TRIGGER_FALLING);
 }
 
 void tcs3400_face_activate(movement_settings_t *settings, void *context) {
     (void) settings;
     (void) context;
     watch_enable_i2c();
+    watch_register_interrupt_callback(A4, prv_interrupt_handler, INTERRUPT_TRIGGER_FALLING);
     tcs3400_ev_setup();
     tcs3400_write_wtime(TCS3400_WTIME_103MS);
     tcs3400_clear_all_interrupts();
@@ -140,7 +140,7 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
         case EVENT_ACTIVATE:
             s_state.last_ev = 0;
             s_state.trigger_reading = false;
-            s_state.request_reading = false;
+            s_state.alarm_pressed = false;
             s_state.retry = false;
 
             sprintf(buf, "  %2u%s", s_isos[s_state.iso_idx]/100, s_fstop_strs[s_state.fstop_idx]);
@@ -152,20 +152,29 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
         case EVENT_TICK:
             break;
         case EVENT_LIGHT_LONG_PRESS:
-            s_state.iso_idx = (s_state.iso_idx + 1) % NUM_ISOS;
-            sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
-            watch_display_string(buf, 2);
+            if (!s_state.alarm_pressed) {
+                s_state.fstop_idx = (s_state.fstop_idx - 1) % NUM_FSTOPS;
+                sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
+                watch_display_string(buf, 4);
+                prv_update_shutter_speed();
+            }
             break;
         case EVENT_LIGHT_BUTTON_DOWN:
             break;
         case EVENT_LIGHT_BUTTON_UP:
-            s_state.fstop_idx = (s_state.fstop_idx + 1) % NUM_FSTOPS;
-            sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
-            watch_display_string(buf, 4);
-            prv_update_shutter_speed();
+            if (!s_state.alarm_pressed) {
+                s_state.fstop_idx = (s_state.fstop_idx + 1) % NUM_FSTOPS;
+                sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
+                watch_display_string(buf, 4);
+                prv_update_shutter_speed();
+            } else {
+                s_state.iso_idx = (s_state.iso_idx + 1) % NUM_ISOS;
+                sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
+                watch_display_string(buf, 2);
+            }
             break;
         case EVENT_ALARM_BUTTON_DOWN:
-            s_state.request_reading = true;
+            s_state.alarm_pressed = true;
 
             if (!s_state.trigger_reading) {
                 tcs3400_start();
@@ -173,7 +182,7 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
             break;
         case EVENT_ALARM_BUTTON_UP:
         case EVENT_ALARM_LONG_UP:
-            s_state.request_reading = false;
+            s_state.alarm_pressed = false;
             break;
         case EVENT_TIMEOUT:
             movement_move_to_face(0);
@@ -192,7 +201,7 @@ void tcs3400_face_resign(movement_settings_t *settings, void *context) {
     (void) settings;
     (void) context;
     ext_irq_disable(A4);
-    s_state.request_reading = false;
+    s_state.alarm_pressed = false;
     s_state.trigger_reading = false;
     tcs3400_stop();
     watch_disable_i2c();
