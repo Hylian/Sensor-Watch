@@ -103,8 +103,8 @@ static void prv_draw_shutter_speed() {
 
 static void prv_draw_ev() {
   char buf[6] = {0};
-  uint32_t whole = tcs3400_fixed_get_whole(s_state.last_ev);
-  uint32_t frac = tcs3400_fixed_get_frac_digit(s_state.last_ev);
+  uint8_t whole = tcs3400_fixed_get_whole(s_state.last_ev);
+  uint8_t frac = tcs3400_fixed_get_frac_digit(s_state.last_ev);
   sprintf(buf, "  %2u%1u ", whole, frac);
   watch_display_string(buf, 6);
 }
@@ -113,7 +113,7 @@ static void prv_draw_mode() {
   if (s_state.mode >= NUM_MODES) {
     s_state.mode = MODE_EV;
   }
-  watch_display_string(s_mode_strs[s_state.mode], 0);
+  watch_display_string((char *)s_mode_strs[s_state.mode], 0);
 }
 
 static void prv_interrupt_handler() {
@@ -221,11 +221,7 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
       }
       break;
     case EVENT_MODE_LONG_PRESS:
-      if (MOVEMENT_SECONDARY_FACE_INDEX && movement_state.current_face_idx == 0) {
-        movement_move_to_face(MOVEMENT_SECONDARY_FACE_INDEX);
-      } else {
         movement_move_to_face(0);
-      }
       break;
     case EVENT_TICK:
       break;
