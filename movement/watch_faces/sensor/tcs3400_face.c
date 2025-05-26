@@ -221,6 +221,14 @@ static void prv_iso_decr() {
   watch_display_string(buf, 2);
 }
 
+static void prv_df_incr() {
+  tcs3400_ev_set_df(tcs3400_ev_get_df() + 1);
+}
+
+static void prv_df_decr() {
+  tcs3400_ev_set_df(tcs3400_ev_get_df() - 1);
+}
+
 bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, void *context) {
   (void) settings;
   (void) context;
@@ -231,6 +239,7 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
   switch (event.event_type) {
     case EVENT_ACTIVATE:
       s_state.last_ev = 0;
+      s_state.last_lux = 0;
       s_state.trigger_reading = false;
       s_state.alarm_pressed = false;
       s_state.retry = false;
@@ -242,13 +251,12 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
       tcs3400_start();
       break;
     case EVENT_LIGHT_BUTTON_UP:
-      prv_fstop_incr();
       switch (s_state.mode) {
         case MODE_AV:
           prv_iso_incr();
           break;
         case MODE_LUX:
-          tcs3400_ev_set_df(tcs3400_ev_get_df() + 1);
+          prv_df_incr();
           break;
         default:
           break;
@@ -281,7 +289,7 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
             prv_fstop_incr();
             break;
           case MODE_LUX:
-            tcs3400_ev_set_df(tcs3400_ev_get_df() - 1);
+            prv_df_decr();
             break;
           default:
             break;
