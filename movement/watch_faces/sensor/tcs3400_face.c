@@ -9,16 +9,18 @@
 #include "watch_utility.h"
 
 typedef enum {
-  MODE_EV = 0,
-  MODE_AV,
-  MODE_SV,
+  MODE_AV = 0,
+  MODE_TV,
+  MODE_EV,
+  MODE_LUX,
   NUM_MODES
 } metering_mode_t;
 
 static const char *s_mode_strs[NUM_MODES] = {
-  "EV",
   "A ",
-  "S ",
+  "T ",
+  "EV",
+  "L ",
 };
 
 #define NUM_FSTOPS (8)
@@ -64,6 +66,7 @@ static struct {
   size_t fstop_idx;
   size_t iso_idx;
   uint32_t last_ev;
+  uint32_t last_lux;
   bool alarm_pressed; // Alarm button is held
   bool trigger_reading; // Sensor is running
   bool retry; // Follow-up reading needed for autogain
@@ -109,16 +112,36 @@ static void prv_draw_ev() {
   watch_display_string(buf, 6);
 }
 
+static void prv_draw_lux(uint32_t lux) {
+  char buf[7] = " 0    ";
+  watch_set_colon();
+  if (lux == 0) {
+      return;
+  }
+
+  int exponent = (int)log10(lux);
+  double mantissa = lux / pow(10, exponent);
+
+  uint8_t left_digits = (uint8_t)(mantissa * 10);
+  uint8_t right_digits = (uint8_t)((mantissa * 100) - (left_digits * 10));
+
+  watch_display_string((exponent < 0) ? "-" : " ", 3);
+
+  sprintf(buf, "%02u%02u%02u", left_digits, right_digits, (uint8_t)abs(exponent));
+  watch_display_string(buf, 4);
+}
+
 static void prv_draw_mode() {
   if (s_state.mode >= NUM_MODES) {
     s_state.mode = MODE_EV;
   }
   watch_display_string((char *)s_mode_strs[s_state.mode], 0);
+  watch_clear_colon();
 }
 
 static void prv_interrupt_handler() {
-  uint32_t ev_fixed;
-  bool result = tcs3400_ev_measure(&ev_fixed, s_isos[s_state.iso_idx]);
+  uint32_t ev_fixed, lux;
+  bool result = tcs3400_ev_measure(&ev_fixed, &lux, s_isos[s_state.iso_idx]);
 
   if (result) {
     if (s_state.retry) {
@@ -126,7 +149,16 @@ static void prv_interrupt_handler() {
       s_state.retry = false;
     }
     s_state.last_ev = tcs3400_fixed_round_to_int(ev_fixed);
-    prv_draw_shutter_speed();
+    s_state.last_lux = lux;
+    switch (s_state.mode) {
+      case MODE_EV:
+        prv_draw_shutter_speed();
+      default:
+        break;
+      case MODE_LUX:
+        prv_draw_lux(lux);
+        break;
+    }
   } else if (!s_state.retry) {
     tcs3400_write_wtime(TCS3400_WTIME_27_8MS);
     s_state.retry = true;
@@ -156,6 +188,37 @@ void tcs3400_face_activate(movement_settings_t *settings, void *context) {
   tcs3400_ev_setup();
   tcs3400_write_wtime(TCS3400_WTIME_103MS);
   tcs3400_clear_all_interrupts();
+  watch_set_indicator(WATCH_INDICATOR_SIGNAL);
+}
+
+static void prv_fstop_incr() {
+  s_state.fstop_idx = (s_state.fstop_idx + 1) % NUM_FSTOPS;
+  char buf[11] = {0};
+  sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
+  watch_display_string(buf, 4);
+  prv_draw_shutter_speed();
+}
+
+static void prv_fstop_decr() {
+  s_state.fstop_idx = (s_state.fstop_idx - 1) % NUM_FSTOPS;
+  char buf[11] = {0};
+  sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
+  watch_display_string(buf, 4);
+  prv_draw_shutter_speed();
+}
+
+static void prv_iso_incr() {
+  s_state.iso_idx = (s_state.iso_idx + 1) % NUM_ISOS;
+  char buf[11] = {0};
+  sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
+  watch_display_string(buf, 2);
+}
+
+static void prv_iso_decr() {
+  s_state.iso_idx = (s_state.iso_idx - 1) % NUM_ISOS;
+  char buf[11] = {0};
+  sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
+  watch_display_string(buf, 2);
 }
 
 bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, void *context) {
@@ -178,27 +241,23 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
       // Perform a single reading on activation
       tcs3400_start();
       break;
-    case EVENT_LIGHT_LONG_PRESS:
-      if (!s_state.alarm_pressed) {
-        s_state.fstop_idx = (s_state.fstop_idx - 1) % NUM_FSTOPS;
-        sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
-        watch_display_string(buf, 4);
-        prv_draw_shutter_speed();
+    case EVENT_LIGHT_BUTTON_UP:
+      prv_fstop_incr();
+      switch (s_state.mode) {
+        case MODE_AV:
+          prv_iso_incr();
+          break;
+        case MODE_LUX:
+          tcs3400_ev_set_df(tcs3400_ev_get_df() + 1);
+          break;
+        default:
+          break;
       }
+      break;
+    case EVENT_LIGHT_LONG_PRESS:
+      prv_iso_decr();
       break;
     case EVENT_LIGHT_BUTTON_DOWN:
-      break;
-    case EVENT_LIGHT_BUTTON_UP:
-      if (!s_state.alarm_pressed) {
-        s_state.fstop_idx = (s_state.fstop_idx + 1) % NUM_FSTOPS;
-        sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
-        watch_display_string(buf, 4);
-        prv_draw_shutter_speed();
-      } else {
-        s_state.iso_idx = (s_state.iso_idx + 1) % NUM_ISOS;
-        sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
-        watch_display_string(buf, 2);
-      }
       break;
     case EVENT_ALARM_BUTTON_DOWN:
       s_state.alarm_pressed = true;
@@ -217,11 +276,26 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
         s_state.mode = (s_state.mode + 1) % NUM_MODES;
         prv_draw_mode();
       } else {
-        movement_move_to_next_face();
+        switch (s_state.mode) {
+          case MODE_AV:
+            prv_fstop_incr();
+            break;
+          case MODE_LUX:
+            tcs3400_ev_set_df(tcs3400_ev_get_df() - 1);
+            break;
+          default:
+            break;
+        }
       }
       break;
+    case EVENT_MODE_BUTTON_DOWN:
+      break;
     case EVENT_MODE_LONG_PRESS:
+      if (s_state.alarm_pressed) {
         movement_move_to_face(0);
+      } else {
+        prv_fstop_decr();
+      }
       break;
     case EVENT_TICK:
       break;

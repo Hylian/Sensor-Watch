@@ -291,10 +291,15 @@ void movement_move_to_face(uint8_t watch_face_index) {
     movement_state.next_face_idx = watch_face_index;
 }
 
+void movement_move_to_lightmeter_face() {
+    movement_state.watch_face_changed = true;
+    movement_state.next_face_idx = MOVEMENT_LIGHTMETER_FACE_INDEX;
+}
+
 void movement_move_to_next_face(void) {
     uint16_t face_max;
     if (MOVEMENT_SECONDARY_FACE_INDEX) {
-        face_max = (movement_state.current_face_idx < (int16_t)MOVEMENT_SECONDARY_FACE_INDEX) ? MOVEMENT_SECONDARY_FACE_INDEX : MOVEMENT_NUM_FACES;
+        face_max = (movement_state.current_face_idx < (int16_t)MOVEMENT_SECONDARY_FACE_INDEX) ? MOVEMENT_SECONDARY_FACE_INDEX : MOVEMENT_LIGHTMETER_FACE_INDEX;
     } else {
         face_max = MOVEMENT_NUM_FACES;
     }

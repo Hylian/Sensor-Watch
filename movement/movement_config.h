@@ -28,14 +28,14 @@
 #include "movement_faces.h"
 
 const watch_face_t watch_faces[] = {
-    simple_clock_face,
-    tcs3400_face,
+    lightmeter_clock_face,
     film_reminder_face,
     stopwatch_face,
     voltage_face,
     set_time_face,
     preferences_face,
     lm_tune_face,
+    tcs3400_face,
 };
 
 #define MOVEMENT_NUM_FACES (sizeof(watch_faces) / sizeof(watch_face_t))
@@ -47,7 +47,9 @@ const watch_face_t watch_faces[] = {
  * If you don't want any faces to be excluded, set this to 0 and a long Mode press will have no effect.
  * Usually it makes sense to set this to the preferences face.
  */
-#define MOVEMENT_SECONDARY_FACE_INDEX (4) // or (0)
+#define MOVEMENT_SECONDARY_FACE_INDEX (3)
+
+#define MOVEMENT_LIGHTMETER_FACE_INDEX (7)
 
 /* Custom hourly chime tune. Check movement_custom_signal_tunes.h for options. */
 #define SIGNAL_TUNE_DEFAULT

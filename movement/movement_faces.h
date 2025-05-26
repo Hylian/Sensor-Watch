@@ -119,6 +119,7 @@
 #include "film_reminder_face.h"
 #include "tcs3400_face.h"
 #include "lm_tune_face.h"
+#include "lightmeter_clock_face.h"
 // New includes go above this line.
 
 #endif // MOVEMENT_FACES_H_

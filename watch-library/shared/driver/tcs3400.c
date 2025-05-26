@@ -271,7 +271,7 @@ uint32_t tcs3400_fixed_get_frac_digit(uint32_t x) {
     return digit_1;
 }
 
-bool tcs3400_ev_measure(uint32_t *ev_fixed, size_t iso) {
+bool tcs3400_ev_measure(uint32_t *ev_fixed, uint32_t *lux, size_t iso) {
     if (!ev_fixed) {
         return false;
     }
@@ -321,18 +321,20 @@ bool tcs3400_ev_measure(uint32_t *ev_fixed, size_t iso) {
     const uint8_t ga = 1; // Glass Attenuation Factor
     const uint32_t cpl = (atime_us * again_x) / (ga * s_df);
 
-    int64_t lux = ((red_c + green_c + blue_c) / cpl);
-    if (lux < 0) {
-      lux = 0;
+    int64_t raw_lux = ((red_c + green_c + blue_c) / cpl);
+    if (raw_lux < 0) {
+      raw_lux = 0;
     }
 
-    uint32_t scaled_lux = (lux * iso / 250);
+    *lux = (uint32_t) raw_lux;
+
+    uint32_t scaled_lux = (raw_lux * iso / 250);
     if (scaled_lux < 2) {
       *ev_fixed = 0;
       return true;
     }
 
-    *ev_fixed = s_log2_fixed((uint32_t)(lux * iso / 250)) + EV_OFFSET_FIXED;
+    *ev_fixed = s_log2_fixed((uint32_t)(raw_lux * iso / 250)) + EV_OFFSET_FIXED;
 
     return true;
 }
@@ -368,17 +370,19 @@ int tcs3400_test_cmd(int argc, char *argv[]) {
     tcs3400_read_data(&status, &clear, &red, &green, &blue);
 
     uint32_t ev_fixed = 0;
+    uint32_t lux = 0;
     size_t iso = 100;
-    bool result = tcs3400_ev_measure(&ev_fixed, iso);
+    bool result = tcs3400_ev_measure(&ev_fixed, &lux, iso);
 
     printf("valid(%i) clear(%i) red(%i) green(%i) blue(%i)\r\n",
            status.field.avalid, clear, red, green, blue);
     if (result) {
-        printf("ev_raw(%08x) ev_round(%u) ev_whole(%u) ev_frac(%u)\r\n",
+        printf("ev_raw(%08x) ev_round(%u) ev_whole(%u) ev_frac(%u) lux(%u)\r\n",
                ev_fixed,
                tcs3400_fixed_round_to_int(ev_fixed),
                tcs3400_fixed_get_whole(ev_fixed),
-               tcs3400_fixed_get_frac_digit(ev_fixed));
+               tcs3400_fixed_get_frac_digit(ev_fixed),
+               lux);
     }
     printf("interrupt(%u)\r\n", s_test_got_interrupt);
     s_test_got_interrupt = false;

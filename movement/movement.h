@@ -285,6 +285,7 @@ typedef struct {
 } movement_state_t;
 
 void movement_move_to_face(uint8_t watch_face_index);
+void movement_move_to_lightmeter_face(void);
 void movement_move_to_next_face(void);
 
 bool movement_default_loop_handler(movement_event_t event, movement_settings_t *settings);
