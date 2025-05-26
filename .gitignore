@@ -25,3 +25,6 @@ _autosave*
 fp-info-cache
 .~*
 *.plan
+.cache
+compile_commands.json
+movement/make/compile_commands.json
