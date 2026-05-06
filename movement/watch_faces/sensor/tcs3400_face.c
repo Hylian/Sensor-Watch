@@ -64,12 +64,14 @@ static const size_t s_isos[NUM_ISOS] = {
 static struct {
   metering_mode_t mode;
   size_t fstop_idx;
+  size_t shutter_speed_idx;
   size_t iso_idx;
   uint32_t last_ev;
   uint32_t last_lux;
   bool alarm_pressed; // Alarm button is held
   bool trigger_reading; // Sensor is running
   bool retry; // Follow-up reading needed for autogain
+  bool has_reading; // At least one successful reading has been obtained
 } s_state = {0};
 
 // Returns:
@@ -77,8 +79,13 @@ static struct {
 //   Light too low: -1
 //   Light too high: -2
 static int prv_pick_shutter_speed(int ev, size_t fstop_idx) {
-  // At EV 1, f/1.4 == 1 sec
-  int result = ev - fstop_idx;
+  // Derived from EV = log2(N^2 / t), so t = N^2 / 2^EV.
+  // The shutter speed table is indexed by 1/t (the denominator), starting at
+  // index 0 = 1s.  f/1.4 has N^2 = 2, so at EV 1: t = 2/2 = 1s -> index 0.
+  // Each stop of aperture adds 1 to fstop_idx and halves t, advancing one
+  // index.  Each stop of EV adds 1, also halving t and advancing one index.
+  // Together: index = ev - fstop_idx - 1.
+  int result = ev - (int)fstop_idx - 1;
   if (result < 0) {
     return -1;
   }
@@ -88,9 +95,27 @@ static int prv_pick_shutter_speed(int ev, size_t fstop_idx) {
   return result;
 }
 
+// Returns:
+//   Success: index of the aperture to display
+//   Light too low (need aperture wider than f/1.4): -1
+//   Light too high (need aperture narrower than f/16): -2
+static int prv_pick_fstop(int ev, size_t shutter_speed_idx) {
+  // Algebraic inverse of prv_pick_shutter_speed:
+  // shutter_idx = ev - fstop_idx - 1  =>  fstop_idx = ev - shutter_idx - 1.
+  int result = ev - (int)shutter_speed_idx - 1;
+  if (result < 0) {
+    return -1;
+  }
+  if (result >= NUM_FSTOPS) {
+    return -2;
+  }
+  return result;
+}
+
 static void prv_draw_shutter_speed() {
+  if (!s_state.has_reading) return;
   char buf[6] = {0};
-  int shutter_speed_idx = prv_pick_shutter_speed(s_state.last_ev, s_state.fstop_idx);
+  int shutter_speed_idx = prv_pick_shutter_speed(tcs3400_fixed_round_to_int(s_state.last_ev), s_state.fstop_idx);
   if (shutter_speed_idx == -1) {
     memcpy(buf, "  LO", 5);
     watch_set_indicator(WATCH_INDICATOR_LAP);
@@ -104,7 +129,30 @@ static void prv_draw_shutter_speed() {
   watch_display_string(buf, 6);
 }
 
+static void prv_draw_tv() {
+  watch_clear_colon();
+  char speed_buf[5] = {0};
+  sprintf(speed_buf, "%4u", s_shutter_speeds[s_state.shutter_speed_idx]);
+  watch_display_string(speed_buf, 6);
+
+  if (!s_state.has_reading) return;
+
+  int fstop_idx = prv_pick_fstop(tcs3400_fixed_round_to_int(s_state.last_ev), s_state.shutter_speed_idx);
+  if (fstop_idx == -1) {
+    watch_display_string("LO", 4);
+    watch_set_indicator(WATCH_INDICATOR_LAP);
+  } else if (fstop_idx == -2) {
+    watch_display_string("HI", 4);
+    watch_set_indicator(WATCH_INDICATOR_LAP);
+  } else {
+    watch_display_string((char *)s_fstop_strs[fstop_idx], 4);
+    watch_clear_indicator(WATCH_INDICATOR_LAP);
+  }
+}
+
 static void prv_draw_ev() {
+  if (!s_state.has_reading) return;
+  watch_clear_indicator(WATCH_INDICATOR_LAP);
   char buf[6] = {0};
   uint8_t whole = tcs3400_fixed_get_whole(s_state.last_ev);
   uint8_t frac = tcs3400_fixed_get_frac_digit(s_state.last_ev);
@@ -113,6 +161,7 @@ static void prv_draw_ev() {
 }
 
 static void prv_draw_lux(uint32_t lux) {
+  if (!s_state.has_reading) return;
   char buf[7] = " 0    ";
   watch_set_colon();
   if (lux == 0) {
@@ -139,26 +188,38 @@ static void prv_draw_mode() {
   watch_clear_colon();
 }
 
+static void prv_draw_current_reading() {
+  switch (s_state.mode) {
+    case MODE_AV:
+      prv_draw_shutter_speed();
+      break;
+    case MODE_TV:
+      prv_draw_tv();
+      break;
+    case MODE_EV:
+      prv_draw_ev();
+      break;
+    case MODE_LUX:
+      prv_draw_lux(s_state.last_lux);
+      break;
+    default:
+      break;
+  }
+}
+
 static void prv_interrupt_handler() {
   uint32_t ev_fixed, lux;
   bool result = tcs3400_ev_measure(&ev_fixed, &lux, s_isos[s_state.iso_idx]);
 
   if (result) {
     if (s_state.retry) {
-      tcs3400_write_wtime(TCS3400_WTIME_103MS);
+      tcs3400_write_wtime(TCS3400_WTIME_2_78MS);
       s_state.retry = false;
     }
-    s_state.last_ev = tcs3400_fixed_round_to_int(ev_fixed);
+    s_state.last_ev = ev_fixed;
     s_state.last_lux = lux;
-    switch (s_state.mode) {
-      case MODE_EV:
-        prv_draw_shutter_speed();
-      default:
-        break;
-      case MODE_LUX:
-        prv_draw_lux(lux);
-        break;
-    }
+    s_state.has_reading = true;
+    prv_draw_current_reading();
   } else if (!s_state.retry) {
     tcs3400_write_wtime(TCS3400_WTIME_27_8MS);
     s_state.retry = true;
@@ -186,7 +247,7 @@ void tcs3400_face_activate(movement_settings_t *settings, void *context) {
   watch_enable_i2c();
   watch_register_interrupt_callback(A4, prv_interrupt_handler, INTERRUPT_TRIGGER_FALLING);
   tcs3400_ev_setup();
-  tcs3400_write_wtime(TCS3400_WTIME_103MS);
+  tcs3400_write_wtime(TCS3400_WTIME_2_78MS);
   tcs3400_clear_all_interrupts();
   watch_set_indicator(WATCH_INDICATOR_SIGNAL);
 }
@@ -196,7 +257,7 @@ static void prv_fstop_incr() {
   char buf[11] = {0};
   sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
   watch_display_string(buf, 4);
-  prv_draw_shutter_speed();
+  prv_draw_current_reading();
 }
 
 static void prv_fstop_decr() {
@@ -204,7 +265,7 @@ static void prv_fstop_decr() {
   char buf[11] = {0};
   sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
   watch_display_string(buf, 4);
-  prv_draw_shutter_speed();
+  prv_draw_current_reading();
 }
 
 static void prv_iso_incr() {
@@ -212,6 +273,7 @@ static void prv_iso_incr() {
   char buf[11] = {0};
   sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
   watch_display_string(buf, 2);
+  prv_draw_current_reading();
 }
 
 static void prv_iso_decr() {
@@ -219,6 +281,17 @@ static void prv_iso_decr() {
   char buf[11] = {0};
   sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
   watch_display_string(buf, 2);
+  prv_draw_current_reading();
+}
+
+static void prv_shutter_speed_incr() {
+  s_state.shutter_speed_idx = (s_state.shutter_speed_idx + 1) % NUM_SHUTTER_SPEEDS;
+  prv_draw_current_reading();
+}
+
+static void prv_shutter_speed_decr() {
+  s_state.shutter_speed_idx = (s_state.shutter_speed_idx - 1) % NUM_SHUTTER_SPEEDS;
+  prv_draw_current_reading();
 }
 
 static void prv_df_incr() {
@@ -243,9 +316,16 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
       s_state.trigger_reading = false;
       s_state.alarm_pressed = false;
       s_state.retry = false;
+      s_state.has_reading = false;
 
-      sprintf(buf, "  %2u%s", s_isos[s_state.iso_idx]/100, s_fstop_strs[s_state.fstop_idx]);
-      watch_display_string(buf, 0);
+      if (s_state.mode == MODE_TV) {
+        sprintf(buf, "  %2u", s_isos[s_state.iso_idx]/100);
+        watch_display_string(buf, 0);
+        prv_draw_tv();
+      } else {
+        sprintf(buf, "  %2u%s", s_isos[s_state.iso_idx]/100, s_fstop_strs[s_state.fstop_idx]);
+        watch_display_string(buf, 0);
+      }
 
       // Perform a single reading on activation
       tcs3400_start();
@@ -253,6 +333,7 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
     case EVENT_LIGHT_BUTTON_UP:
       switch (s_state.mode) {
         case MODE_AV:
+        case MODE_TV:
           prv_iso_incr();
           break;
         case MODE_LUX:
@@ -283,10 +364,14 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
         // Change metering mode
         s_state.mode = (s_state.mode + 1) % NUM_MODES;
         prv_draw_mode();
+        prv_draw_current_reading();
       } else {
         switch (s_state.mode) {
           case MODE_AV:
             prv_fstop_incr();
+            break;
+          case MODE_TV:
+            prv_shutter_speed_incr();
             break;
           case MODE_LUX:
             prv_df_decr();
@@ -302,12 +387,24 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
       if (s_state.alarm_pressed) {
         movement_move_to_face(0);
       } else {
-        prv_fstop_decr();
+        switch (s_state.mode) {
+          case MODE_AV:
+            prv_fstop_decr();
+            break;
+          case MODE_TV:
+            prv_shutter_speed_decr();
+            break;
+          default:
+            break;
+        }
       }
       break;
     case EVENT_TICK:
       break;
     case EVENT_LOW_ENERGY_UPDATE:
+      movement_move_to_face(0);
+      movement_request_wake();
+      break;
     case EVENT_TIMEOUT:
       movement_move_to_face(0);
       break;
