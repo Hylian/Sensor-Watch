@@ -61,6 +61,12 @@ static const size_t s_isos[NUM_ISOS] = {
   800
 };
 
+typedef struct {
+  uint8_t backup_register;
+} tcs3400_face_context_t;
+
+static tcs3400_face_context_t s_context = {0};
+
 static struct {
   metering_mode_t mode;
   size_t fstop_idx;
@@ -72,6 +78,7 @@ static struct {
   bool trigger_reading; // Sensor is running
   bool retry; // Follow-up reading needed for autogain
   bool has_reading; // At least one successful reading has been obtained
+  bool signal_blink_pending; // SIGNAL indicator is off and waiting to be restored on next tick
 } s_state = {0};
 
 // Returns:
@@ -157,7 +164,7 @@ static void prv_draw_ev() {
   uint8_t whole = tcs3400_fixed_get_whole(s_state.last_ev);
   uint8_t frac = tcs3400_fixed_get_frac_digit(s_state.last_ev);
   sprintf(buf, "  %2u%1u ", whole, frac);
-  watch_display_string(buf, 6);
+  watch_display_string(buf, 4);
 }
 
 static void prv_draw_lux(uint32_t lux) {
@@ -186,6 +193,21 @@ static void prv_draw_mode() {
   }
   watch_display_string((char *)s_mode_strs[s_state.mode], 0);
   watch_clear_colon();
+
+  char buf[3] = "  ";
+  if (s_state.mode == MODE_TV || s_state.mode == MODE_AV) {
+    sprintf(buf, "%2u", s_isos[s_state.iso_idx]/100);
+  }
+  watch_display_string(buf, 2);
+
+  if (s_state.mode == MODE_TV) {
+    char tv_buf[7] = {0};
+    sprintf(tv_buf, "  %4u", s_shutter_speeds[s_state.shutter_speed_idx]);
+    watch_display_string(tv_buf, 4);
+  } else if (s_state.mode == MODE_AV) {
+    watch_display_string((char *)s_fstop_strs[s_state.fstop_idx], 4);
+    watch_display_string("    ", 6);
+  }
 }
 
 static void prv_draw_current_reading() {
@@ -209,7 +231,8 @@ static void prv_draw_current_reading() {
 
 static void prv_interrupt_handler() {
   uint32_t ev_fixed, lux;
-  bool result = tcs3400_ev_measure(&ev_fixed, &lux, s_isos[s_state.iso_idx]);
+  size_t iso = s_state.mode == MODE_EV ? 100 : s_isos[s_state.iso_idx];
+  bool result = tcs3400_ev_measure(&ev_fixed, &lux, iso);
 
   if (result) {
     if (s_state.retry) {
@@ -220,6 +243,10 @@ static void prv_interrupt_handler() {
     s_state.last_lux = lux;
     s_state.has_reading = true;
     prv_draw_current_reading();
+    watch_clear_indicator(WATCH_INDICATOR_SIGNAL);
+    if (!s_state.alarm_pressed) {
+      s_state.signal_blink_pending = true;
+    }
   } else if (!s_state.retry) {
     tcs3400_write_wtime(TCS3400_WTIME_27_8MS);
     s_state.retry = true;
@@ -237,8 +264,18 @@ static void prv_interrupt_handler() {
 void tcs3400_face_setup(movement_settings_t *settings, uint8_t watch_face_index, void ** context_ptr) {
   (void) settings;
   (void) watch_face_index;
-  (void) context_ptr;
   watch_enable_pull_up(A4);
+
+  if (*context_ptr == NULL) {
+    *context_ptr = &s_context;
+    s_context.backup_register = movement_claim_backup_register();
+    if (s_context.backup_register) {
+      uint32_t saved = watch_get_backup_data(s_context.backup_register);
+      if (saved < NUM_MODES) {
+        s_state.mode = (metering_mode_t)saved;
+      }
+    }
+  }
 }
 
 void tcs3400_face_activate(movement_settings_t *settings, void *context) {
@@ -254,17 +291,13 @@ void tcs3400_face_activate(movement_settings_t *settings, void *context) {
 
 static void prv_fstop_incr() {
   s_state.fstop_idx = (s_state.fstop_idx + 1) % NUM_FSTOPS;
-  char buf[11] = {0};
-  sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
-  watch_display_string(buf, 4);
+  watch_display_string(s_fstop_strs[s_state.fstop_idx], 4);
   prv_draw_current_reading();
 }
 
 static void prv_fstop_decr() {
   s_state.fstop_idx = (s_state.fstop_idx - 1) % NUM_FSTOPS;
-  char buf[11] = {0};
-  sprintf(buf, "%s", s_fstop_strs[s_state.fstop_idx]);
-  watch_display_string(buf, 4);
+  watch_display_string(s_fstop_strs[s_state.fstop_idx], 4);
   prv_draw_current_reading();
 }
 
@@ -308,26 +341,28 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
 
   ext_irq_disable(A4);
 
+  // If the alarm button was tracked as held but the pin is now low, the up-event
+  // was lost to a race (the ISR fired while the face loop was executing a previous
+  // event, and app_loop overwrote it with EVENT_NONE). Sync here so a missed
+  // release never leaves alarm_pressed stuck true.
+  s_state.alarm_pressed = s_state.alarm_pressed && watch_get_pin_level(BTN_ALARM);
+
   char buf[11] = {0};
   switch (event.event_type) {
     case EVENT_ACTIVATE:
       s_state.last_ev = 0;
       s_state.last_lux = 0;
       s_state.trigger_reading = false;
-      s_state.alarm_pressed = false;
+      s_state.alarm_pressed = watch_get_pin_level(BTN_ALARM);
       s_state.retry = false;
       s_state.has_reading = false;
+      s_state.signal_blink_pending = false;
 
-      if (s_state.mode == MODE_TV) {
-        sprintf(buf, "  %2u", s_isos[s_state.iso_idx]/100);
-        watch_display_string(buf, 0);
-        prv_draw_tv();
-      } else {
-        sprintf(buf, "  %2u%s", s_isos[s_state.iso_idx]/100, s_fstop_strs[s_state.fstop_idx]);
-        watch_display_string(buf, 0);
-      }
+      prv_draw_mode();
 
       // Perform a single reading on activation
+      s_state.trigger_reading = true;
+      movement_request_tick_frequency(8);
       tcs3400_start();
       break;
     case EVENT_LIGHT_BUTTON_UP:
@@ -344,14 +379,26 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
       }
       break;
     case EVENT_LIGHT_LONG_PRESS:
-      prv_iso_decr();
+      switch (s_state.mode) {
+        case MODE_AV:
+        case MODE_TV:
+          prv_iso_decr();
+          break;
+        case MODE_LUX:
+          prv_df_decr();
+          break;
+        default:
+          break;
+      }
       break;
     case EVENT_LIGHT_BUTTON_DOWN:
       break;
     case EVENT_ALARM_BUTTON_DOWN:
       s_state.alarm_pressed = true;
+      movement_request_tick_frequency(8);
 
       if (!s_state.trigger_reading) {
+        s_state.trigger_reading = true;
         tcs3400_start();
       }
       break;
@@ -400,6 +447,13 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
       }
       break;
     case EVENT_TICK:
+      if (s_state.signal_blink_pending) {
+        watch_set_indicator(WATCH_INDICATOR_SIGNAL);
+        s_state.signal_blink_pending = false;
+        if (!s_state.trigger_reading && !s_state.alarm_pressed) {
+          movement_request_tick_frequency(1);
+        }
+      }
       break;
     case EVENT_LOW_ENERGY_UPDATE:
       movement_move_to_face(0);
@@ -419,11 +473,15 @@ bool tcs3400_face_loop(movement_event_t event, movement_settings_t *settings, vo
 
 void tcs3400_face_resign(movement_settings_t *settings, void *context) {
   (void) settings;
-  (void) context;
   ext_irq_disable(A4);
   s_state.alarm_pressed = false;
   s_state.trigger_reading = false;
   tcs3400_stop();
   watch_disable_i2c();
   movement_request_tick_frequency(1);
+
+  tcs3400_face_context_t *ctx = (tcs3400_face_context_t *)context;
+  if (ctx && ctx->backup_register) {
+    watch_store_backup_data(s_state.mode, ctx->backup_register);
+  }
 }
