@@ -37,9 +37,9 @@ const uint16_t isos[] = {
 const char char_0[] = {
     ' ',
     'A',
-    'B',
+    'b',
     'C',
-    'D',
+    'd',
     'E',
     'F',
     'G',
@@ -50,7 +50,47 @@ const char char_0[] = {
     'L',
     'M',
     'N',
-    'O',
+    'o',
+    'P',
+    'Q',
+    'R',
+    'S',
+    'T',
+    'U',
+    'v',
+    'W',
+    'X',
+    'Y',
+    'Z',
+    '0',
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+};
+
+const char char_1[] = {
+    ' ',
+    'A',
+    'b',
+    'C',
+    'd',
+    'E',
+    'F',
+    'g',
+    'H',
+    'I',
+    'J',
+    'K',
+    'L',
+    'M',
+    'N',
+    'o',
     'P',
     'Q',
     'R',
@@ -72,31 +112,6 @@ const char char_0[] = {
     '7',
     '8',
     '9',
-};
-
-const char char_1[] = {
-    ' ',
-    'A',
-    'B',
-    'C',
-    'D',
-    'E',
-    'F',
-    'H',
-    'I',
-    'J',
-    'L',
-    'N',
-    'O',
-    'R',
-    'T',
-    'U',
-    'X',
-    '0',
-    '1',
-    '3',
-    '7',
-    '8',
 };
 
 const size_t num_isos = sizeof(isos)/(sizeof(isos[0]));
@@ -178,28 +193,28 @@ bool film_reminder_face_loop(movement_event_t event, movement_settings_t *settin
                 c = s_state.cameras[s_state.current_camera].name[s_edit_idx];
                 c = (c - 1) % (s_edit_idx ? sizeof(char_1) : sizeof(char_0));
                 s_state.cameras[s_state.current_camera].name[s_edit_idx] = c;
-                s_blink(phase);
+                s_blink(false);
                 break;
             case EVENT_ALARM_BUTTON_UP:
                 c = s_state.cameras[s_state.current_camera].name[s_edit_idx];
                 c = (c + 1) % (s_edit_idx ? sizeof(char_1) : sizeof(char_0));
                 s_state.cameras[s_state.current_camera].name[s_edit_idx] = c;
-                s_blink(phase);
+                s_blink(false);
                 break;
             case EVENT_LIGHT_BUTTON_UP:
                 if (s_edit_idx == 0) {
                     s_edit_idx++;
-                    s_blink(phase);
+                    s_blink(false);
                 } else {
                     s_edit_mode = false;
-                    watch_clear_indicator(WATCH_INDICATOR_BELL);
+                    watch_clear_indicator(WATCH_INDICATOR_PM);
                     display();
                     movement_request_tick_frequency(1);
                 }
                 break;
             case EVENT_LIGHT_LONG_PRESS:
                 s_edit_mode = false;
-                watch_clear_indicator(WATCH_INDICATOR_BELL);
+                watch_clear_indicator(WATCH_INDICATOR_PM);
                 movement_request_tick_frequency(1);
                 display();
                 break;
@@ -225,7 +240,7 @@ bool film_reminder_face_loop(movement_event_t event, movement_settings_t *settin
             case EVENT_LIGHT_LONG_PRESS:
                 s_edit_idx = 0;
                 s_edit_mode = true;
-                watch_set_indicator(WATCH_INDICATOR_BELL);
+                watch_set_indicator(WATCH_INDICATOR_PM);
                 movement_request_tick_frequency(4);
                 break;
             case EVENT_ALARM_LONG_PRESS:

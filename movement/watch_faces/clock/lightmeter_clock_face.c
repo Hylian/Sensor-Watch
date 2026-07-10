@@ -144,7 +144,7 @@ bool lightmeter_clock_face_loop(movement_event_t event, movement_settings_t *set
             // handle alarm indicator
             if (state->alarm_enabled != settings->bit.alarm_enabled) _update_alarm_indicator(settings->bit.alarm_enabled, state);
             break;
-        case EVENT_ALARM_BUTTON_UP:
+        case EVENT_LIGHT_LONG_PRESS:
             state->signal_enabled = !state->signal_enabled;
             if (state->signal_enabled) watch_set_indicator(WATCH_INDICATOR_BELL);
             else watch_clear_indicator(WATCH_INDICATOR_BELL);

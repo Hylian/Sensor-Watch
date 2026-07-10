@@ -31,6 +31,7 @@ const watch_face_t watch_faces[] = {
     lightmeter_clock_face,
     film_reminder_face,
     stopwatch_face,
+    alarm_face,
     voltage_face,
     set_time_face,
     preferences_face,
@@ -47,9 +48,9 @@ const watch_face_t watch_faces[] = {
  * If you don't want any faces to be excluded, set this to 0 and a long Mode press will have no effect.
  * Usually it makes sense to set this to the preferences face.
  */
-#define MOVEMENT_SECONDARY_FACE_INDEX (3)
+#define MOVEMENT_SECONDARY_FACE_INDEX (4)
 
-#define MOVEMENT_LIGHTMETER_FACE_INDEX (7)
+#define MOVEMENT_LIGHTMETER_FACE_INDEX (8)
 
 /* Custom hourly chime tune. Check movement_custom_signal_tunes.h for options. */
 #define SIGNAL_TUNE_DEFAULT
@@ -73,7 +74,7 @@ const watch_face_t watch_faces[] = {
  * 2: 5 minutes
  * 3: 30 minutes
  */
-#define MOVEMENT_DEFAULT_TIMEOUT_INTERVAL 3
+#define MOVEMENT_DEFAULT_TIMEOUT_INTERVAL 2
 
 /* Set the timeout before switching to low energy mode
  * Valid values are:
