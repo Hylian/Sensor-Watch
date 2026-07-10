@@ -35,8 +35,15 @@ const watch_face_t watch_faces[] = {
     voltage_face,
     set_time_face,
     preferences_face,
+#if defined(WATCH_HAS_TCS3400_SENSOR)
+    // GREEN / BLACK: TCS3400 light sensor light-meter support.
     lm_tune_face,
     tcs3400_face,
+#elif defined(WATCH_HAS_TEMPERATURE_SENSOR)
+    // RED: hardwired thermistor temperature sensor support.
+    thermistor_readout_face,
+    thermistor_logging_face,
+#endif
 };
 
 #define MOVEMENT_NUM_FACES (sizeof(watch_faces) / sizeof(watch_face_t))

@@ -7,19 +7,38 @@ endif
 BIN = watch
 
 ifndef COLOR
-$(error Set the COLOR variable to RED, BLUE, GREEN or PRO depending on what board you have.)
+$(error Set the COLOR variable to RED, BLUE, GREEN, BLACK or PRO depending on what board you have.)
 endif
 
-COLOR_VALID := $(filter $(COLOR),RED BLUE GREEN PRO)
+COLOR_VALID := $(filter $(COLOR),RED BLUE GREEN BLACK PRO)
 
 ifeq ($(COLOR_VALID),)
-$(error COLOR must be RED, BLUE, GREEN or PRO)
+$(error COLOR must be RED, BLUE, GREEN, BLACK or PRO)
 endif
 
 ifeq ($(COLOR), PRO)
 override BOARD = OSO-SWAT-C1-00
 else
+# BLACK is a Sensor Watch Lite (RED) hardware revision, so it uses the same board.
 override BOARD = OSO-SWAT-A1-05
+endif
+
+# Determine which sensor is populated on this board revision. This drives both the
+# conditional compilation of the sensor drivers/faces below and the WATCH_HAS_*
+# compile-time defines used throughout the firmware.
+#  - RED (Sensor Watch Lite) has a thermistor temperature sensor hardwired on-board.
+#  - GREEN, BLUE and BLACK carry a TCS3400 RGB light sensor attached over I2C.
+ifeq ($(COLOR), RED)
+SENSOR = TEMPERATURE
+else
+SENSOR = TCS3400
+endif
+
+ifeq ($(SENSOR), TEMPERATURE)
+CFLAGS += -DWATCH_HAS_TEMPERATURE_SENSOR
+endif
+ifeq ($(SENSOR), TCS3400)
+CFLAGS += -DWATCH_HAS_TCS3400_SENSOR
 endif
 
 ##############################################################################
@@ -162,13 +181,19 @@ SRCS += \
   $(TOP)/watch-library/hardware/hpl/sercom/hpl_sercom.c \
   $(TOP)/watch-library/hardware/hpl/slcd/hpl_slcd.c \
   $(TOP)/watch-library/hardware/hpl/systick/hpl_systick.c \
-  $(TOP)/watch-library/shared/driver/thermistor_driver.c \
   $(TOP)/watch-library/shared/driver/lis2dw.c \
-  $(TOP)/watch-library/shared/driver/tcs3400.c \
   $(TOP)/watch-library/shared/driver/opt3001.c \
   $(TOP)/watch-library/shared/driver/spiflash.c \
   $(TOP)/watch-library/shared/watch/watch_private_display.c \
   $(TOP)/watch-library/shared/watch/watch_utility.c \
+
+# Only compile the driver for the sensor that is actually populated on this board.
+ifeq ($(SENSOR), TCS3400)
+SRCS += $(TOP)/watch-library/shared/driver/tcs3400.c
+endif
+ifeq ($(SENSOR), TEMPERATURE)
+SRCS += $(TOP)/watch-library/shared/driver/thermistor_driver.c
+endif
 
 DEFINES += \
   -D__SAML22J18A__ \
@@ -221,20 +246,32 @@ CFLAGS += -DWATCH_IS_BLUE_BOARD
 endif
 
 ifndef COLOR
-$(error Set the COLOR variable to RED, BLUE, or GREEN depending on what board you have.)
+$(error Set the COLOR variable to RED, BLUE, GREEN or BLACK depending on what board you have.)
 endif
 
-COLOR_VALID := $(filter $(COLOR),RED BLUE GREEN)
+COLOR_VALID := $(filter $(COLOR),RED BLUE GREEN BLACK)
 
 ifeq ($(COLOR_VALID),)
-$(error COLOR must be RED, BLUE, or GREEN)
+$(error COLOR must be RED, BLUE, GREEN or BLACK)
 endif
 
+# Board electrical characteristics. The sensor (WATCH_HAS_*) defines are handled
+# separately, up near the top of this file, based on the SENSOR variable.
 ifeq ($(COLOR), BLUE)
 CFLAGS += -DWATCH_IS_BLUE_BOARD
 endif
 
 ifeq ($(COLOR), RED)
+CFLAGS += -DWATCH_INVERT_LED_POLARITY
+CFLAGS += -DNO_FREQCORR
+endif
+
+# BLACK is a Sensor Watch Lite (RED) hardware revision. It shares RED's board
+# electrical characteristics (common-anode LED requiring inverted polarity, and no
+# RTC frequency correction), but the hardwired temperature sensor has been removed
+# and a TCS3400 light sensor has been added over I2C, hooked up identically to the
+# GREEN configuration (see the SENSOR handling above).
+ifeq ($(COLOR), BLACK)
 CFLAGS += -DWATCH_INVERT_LED_POLARITY
 CFLAGS += -DNO_FREQCORR
 endif

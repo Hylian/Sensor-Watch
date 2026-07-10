@@ -60,9 +60,6 @@ SRCS += \
   ../watch_faces/settings/preferences_face.c \
   ../watch_faces/settings/set_time_face.c \
   ../watch_faces/settings/set_time_hackwatch_face.c \
-  ../watch_faces/sensor/thermistor_readout_face.c \
-  ../watch_faces/sensor/thermistor_logging_face.c \
-  ../watch_faces/sensor/thermistor_testing_face.c \
   ../watch_faces/demo/character_set_face.c \
   ../watch_faces/demo/voltage_face.c \
   ../watch_faces/demo/lis2dw_logging_face.c \
@@ -96,7 +93,6 @@ SRCS += \
   ../watch_faces/settings/nanosec_face.c \
   ../watch_faces/settings/finetune_face.c \
   ../watch_faces/complication/databank_face.c \
-  ../watch_faces/complication/tempchart_face.c \
   ../watch_faces/complication/tally_face.c \
   ../watch_faces/complication/tarot_face.c \
   ../watch_faces/complication/morsecalc_face.c \
@@ -139,13 +135,29 @@ SRCS += \
   ../watch_faces/clock/minimal_clock_face.c \
   ../watch_faces/complication/simon_face.c \
   ../watch_faces/complication/simple_calculator_face.c \
-  ../watch_faces/sensor/alarm_thermometer_face.c \
   ../watch_faces/demo/beeps_face.c \
-  ../watch_faces/sensor/tcs3400_face.c \
   ../watch_faces/complication/film_reminder_face.c \
-  ../watch_faces/settings/lm_tune_face.c \
   ../watch_faces/clock/lightmeter_clock_face.c
 # New watch faces go above this line.
+
+# Sensor-specific watch faces. Only the faces for the sensor that is actually
+# populated on this board revision (see SENSOR in make.mk) get compiled in. The
+# TCS3400 faces make up the light-meter build used by GREEN and BLACK; the
+# thermistor faces are the temperature-sensor support used by RED.
+ifeq ($(SENSOR), TCS3400)
+SRCS += \
+  ../watch_faces/sensor/tcs3400_face.c \
+  ../watch_faces/settings/lm_tune_face.c
+endif
+
+ifeq ($(SENSOR), TEMPERATURE)
+SRCS += \
+  ../watch_faces/sensor/thermistor_readout_face.c \
+  ../watch_faces/sensor/thermistor_logging_face.c \
+  ../watch_faces/sensor/thermistor_testing_face.c \
+  ../watch_faces/sensor/alarm_thermometer_face.c \
+  ../watch_faces/complication/tempchart_face.c
+endif
 
 # Leave this line at the bottom of the file; it has all the targets for making your project.
 include $(TOP)/rules.mk

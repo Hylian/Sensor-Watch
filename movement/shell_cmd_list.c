@@ -30,7 +30,9 @@
 
 #include "filesystem.h"
 #include "watch.h"
+#ifdef WATCH_HAS_TCS3400_SENSOR
 #include "tcs3400.h"
+#endif
 
 static int help_cmd(int argc, char *argv[]);
 static int flash_cmd(int argc, char *argv[]);
@@ -107,6 +109,7 @@ shell_command_t g_shell_commands[] = {
         .max_args = 2,
         .cb = stress_cmd,
     },
+#ifdef WATCH_HAS_TCS3400_SENSOR
     {
         .name = "tcs",
         .help = "",
@@ -114,6 +117,7 @@ shell_command_t g_shell_commands[] = {
         .max_args = 0,
         .cb = tcs3400_test_cmd,
     },
+#endif
 };
 
 const size_t g_num_shell_commands = sizeof(g_shell_commands) / sizeof(shell_command_t);
