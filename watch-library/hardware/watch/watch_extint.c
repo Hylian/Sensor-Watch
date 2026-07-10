@@ -92,6 +92,21 @@ void watch_register_interrupt_callback(const uint8_t pin, ext_irq_cb_t callback,
     hri_eic_config_reg_t config = EIC->CONFIG[config_index].reg;
     config &= ~(7 << sense_pos);
     config |= trigger << (sense_pos);
+#ifdef WATCH_ENABLE_BUTTON_FILTER
+    // Enable the EIC's majority-vote input filter (FILTENx) on the button
+    // channels. This is the SAM L22's built-in hardware debounce facility: the
+    // pin is sampled on GCLK_EIC (here, the 32.768 kHz crystal) and a
+    // three-sample majority vote must agree before an edge is reported. This
+    // rejects contact-bounce glitches shorter than a few EIC clock periods
+    // (on the order of ~90 us) at the cost of a small, matching detection
+    // latency. The FILTEN bit lives in the same enable-protected CONFIG
+    // register as the SENSE bits, so we set it here inside the same
+    // disable/re-enable window. The EIC keeps running in STANDBY, so button
+    // wake-from-sleep is unaffected.
+    if (pin == BTN_ALARM || pin == BTN_LIGHT || pin == BTN_MODE) {
+        config |= (1 << (sense_pos + 3));
+    }
+#endif
     hri_eic_write_CONFIG_reg(EIC, config_index, config);
     // ...set the pin mode...
     gpio_set_pin_function(pin, GPIO_PIN_FUNCTION_A);

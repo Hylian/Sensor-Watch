@@ -290,3 +290,11 @@ endif
 ifdef CLOCK_FACE_24H_ONLY
 CFLAGS += -DCLOCK_FACE_24H_ONLY
 endif
+
+# Enable the SAM L22 EIC's hardware input filter on the button channels. This
+# turns on the majority-vote glitch filter (FILTENx) to debounce Light, Mode
+# and Alarm button presses in hardware. Off by default; build with
+# BUTTON_FILTER=1 to enable. Has no effect on the simulator build.
+ifdef BUTTON_FILTER
+CFLAGS += -DWATCH_ENABLE_BUTTON_FILTER
+endif
